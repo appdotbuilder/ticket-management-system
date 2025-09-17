@@ -1,7 +1,19 @@
+import { db } from '../db';
+import { pendingReasonsTable } from '../db/schema';
 import { type PendingReason } from '../schema';
+import { eq } from 'drizzle-orm';
 
 export async function getPendingReasons(): Promise<PendingReason[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is fetching all active pending reasons.
-    return Promise.resolve([] as PendingReason[]);
+  try {
+    const result = await db.select()
+      .from(pendingReasonsTable)
+      .where(eq(pendingReasonsTable.is_active, true))
+      .orderBy(pendingReasonsTable.reason)
+      .execute();
+
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch pending reasons:', error);
+    throw error;
+  }
 }

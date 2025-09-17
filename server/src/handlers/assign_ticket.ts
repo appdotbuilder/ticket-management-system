@@ -1,27 +1,64 @@
+import { db } from '../db';
+import { ticketsTable, usersTable, ticketHistoryTable } from '../db/schema';
 import { type AssignTicketInput, type Ticket } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function assignTicket(input: AssignTicketInput): Promise<Ticket> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is assigning a ticket to a specific technician or user.
-    // Should validate user permissions and update ticket history.
-    return Promise.resolve({
-        id: input.ticket_id,
-        ticket_number: `TKT-${input.ticket_id}`,
-        title: 'Placeholder Title',
-        description: 'Placeholder Description',
-        status: 'open',
-        priority: 'medium',
-        customer_id: 0,
+export const assignTicket = async (input: AssignTicketInput): Promise<Ticket> => {
+  try {
+    // First, verify the ticket exists
+    const existingTickets = await db.select()
+      .from(ticketsTable)
+      .where(eq(ticketsTable.id, input.ticket_id))
+      .execute();
+
+    if (existingTickets.length === 0) {
+      throw new Error(`Ticket with ID ${input.ticket_id} not found`);
+    }
+
+    const existingTicket = existingTickets[0];
+
+    // If assigning to someone, verify the user exists and is active
+    if (input.assigned_to !== null) {
+      const users = await db.select()
+        .from(usersTable)
+        .where(eq(usersTable.id, input.assigned_to))
+        .execute();
+
+      if (users.length === 0) {
+        throw new Error(`User with ID ${input.assigned_to} not found`);
+      }
+
+      if (!users[0].is_active) {
+        throw new Error(`User with ID ${input.assigned_to} is not active`);
+      }
+    }
+
+    // Update the ticket assignment
+    const updatedTickets = await db.update(ticketsTable)
+      .set({
         assigned_to: input.assigned_to,
-        created_by: 0,
-        case_id: null,
-        pending_reason_id: null,
-        closing_reason_id: null,
-        scheduled_date: null,
-        sla_due_date: new Date(),
-        resolved_at: null,
-        closed_at: null,
-        created_at: new Date(),
         updated_at: new Date()
-    } as Ticket);
-}
+      })
+      .where(eq(ticketsTable.id, input.ticket_id))
+      .returning()
+      .execute();
+
+    // Create history record for the assignment change
+    await db.insert(ticketHistoryTable)
+      .values({
+        ticket_id: input.ticket_id,
+        changed_by: input.assigned_to || 1, // Default to system user if unassigning
+        field_name: 'assigned_to',
+        old_value: existingTicket.assigned_to?.toString() || null,
+        new_value: input.assigned_to?.toString() || null,
+        change_reason: input.change_reason || 'Ticket assignment updated',
+        created_at: new Date()
+      })
+      .execute();
+
+    return updatedTickets[0];
+  } catch (error) {
+    console.error('Ticket assignment failed:', error);
+    throw error;
+  }
+};

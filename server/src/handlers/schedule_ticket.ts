@@ -1,27 +1,49 @@
+import { db } from '../db';
+import { ticketsTable, ticketHistoryTable } from '../db/schema';
 import { type ScheduleTicketInput, type Ticket } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function scheduleTicket(input: ScheduleTicketInput): Promise<Ticket> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is scheduling a ticket for a specific date and time.
-    // Should update ticket status and maintain audit history.
-    return Promise.resolve({
-        id: input.ticket_id,
-        ticket_number: `TKT-${input.ticket_id}`,
-        title: 'Placeholder Title',
-        description: 'Placeholder Description',
-        status: 'open',
-        priority: 'medium',
-        customer_id: 0,
-        assigned_to: null,
-        created_by: 0,
-        case_id: null,
-        pending_reason_id: null,
-        closing_reason_id: null,
+export const scheduleTicket = async (input: ScheduleTicketInput): Promise<Ticket> => {
+  try {
+    // First, verify the ticket exists
+    const existingTickets = await db.select()
+      .from(ticketsTable)
+      .where(eq(ticketsTable.id, input.ticket_id))
+      .execute();
+
+    if (existingTickets.length === 0) {
+      throw new Error(`Ticket with ID ${input.ticket_id} not found`);
+    }
+
+    const existingTicket = existingTickets[0];
+
+    // Update the ticket with the scheduled date
+    const result = await db.update(ticketsTable)
+      .set({
         scheduled_date: input.scheduled_date,
-        sla_due_date: new Date(),
-        resolved_at: null,
-        closed_at: null,
-        created_at: new Date(),
         updated_at: new Date()
-    } as Ticket);
-}
+      })
+      .where(eq(ticketsTable.id, input.ticket_id))
+      .returning()
+      .execute();
+
+    const updatedTicket = result[0];
+
+    // Create audit history entry
+    await db.insert(ticketHistoryTable)
+      .values({
+        ticket_id: input.ticket_id,
+        changed_by: 1, // Default user ID - in real app this would come from auth context
+        field_name: 'scheduled_date',
+        old_value: existingTicket.scheduled_date ? existingTicket.scheduled_date.toISOString() : null,
+        new_value: input.scheduled_date.toISOString(),
+        change_reason: input.change_reason
+      })
+      .execute();
+
+    return updatedTicket;
+  } catch (error) {
+    console.error('Ticket scheduling failed:', error);
+    throw error;
+  }
+};

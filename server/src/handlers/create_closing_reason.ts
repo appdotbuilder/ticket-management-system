@@ -1,13 +1,22 @@
+import { db } from '../db';
+import { closingReasonsTable } from '../db/schema';
 import { type CreateClosingReasonInput, type ClosingReason } from '../schema';
 
-export async function createClosingReason(input: CreateClosingReasonInput): Promise<ClosingReason> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is creating master data for ticket closing reasons.
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+export const createClosingReason = async (input: CreateClosingReasonInput): Promise<ClosingReason> => {
+  try {
+    // Insert closing reason record
+    const result = await db.insert(closingReasonsTable)
+      .values({
         reason: input.reason,
         description: input.description,
-        is_active: input.is_active,
-        created_at: new Date()
-    } as ClosingReason);
-}
+        is_active: input.is_active
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Closing reason creation failed:', error);
+    throw error;
+  }
+};
